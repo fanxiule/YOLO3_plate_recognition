@@ -6,15 +6,13 @@ from utils import intersection_over_union
 
 
 class YoloLoss(nn.Module):
-    def __init__(self, lambda_box=10, lambda_obj=1, lambda_noobj=10, lambda_cls=1):
+    def __init__(self, lambda_box=10, lambda_obj=1, lambda_noobj=10):
         super(YoloLoss, self).__init__()
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
-        self.entropy = nn.BCEWithLogitsLoss()
         self.sigmoid = nn.Sigmoid()
 
         # Constants signifying how much to pay for each respective part of the loss
-        self.lambda_class = lambda_cls
         self.lambda_noobj = lambda_noobj
         self.lambda_obj = lambda_obj
         self.lambda_box = lambda_box
@@ -49,11 +47,6 @@ class YoloLoss(nn.Module):
         target[..., 3:5] = torch.log((1e-16 + target[..., 3:5] / anchors))  # width, height coordinates
         box_loss = self.mse(predictions[..., 1:5][obj], target[..., 1:5][obj])
 
-        # ================== #
-        #   FOR CLASS LOSS   #
-        # ================== #
-        class_loss = self.entropy((predictions[..., 5][obj]), (target[..., 5][obj].float()), )
-
         # print("__________________________________")
         # print(self.lambda_box * box_loss)
         # print(self.lambda_obj * object_loss)
@@ -65,5 +58,4 @@ class YoloLoss(nn.Module):
                 self.lambda_box * box_loss
                 + self.lambda_obj * object_loss
                 + self.lambda_noobj * no_object_loss
-                + self.lambda_class * class_loss
         )

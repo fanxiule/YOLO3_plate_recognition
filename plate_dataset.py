@@ -21,10 +21,14 @@ class LicensePlateDataset(Dataset):
         self.num_anchors = self.norm_anchors.shape[0]
         self.num_anchors_per_scale = self.num_anchors // len(norm_anchors)
 
-        if dataset_status == 0:
-            # 0 -> training, 1 -> validation, 2 -> testing
-            with open(os.path.join(data_path, "train.txt")) as f:
-                self.data_list = f.readlines()
+        if dataset_status == 0 or dataset_status == 3:
+            # 0 -> training, 1 -> validation, 2 -> testing, 3 -> training + validation
+            if dataset_status == 0:
+                with open(os.path.join(data_path, "train.txt")) as f:
+                    self.data_list = f.readlines()
+            else:
+                with open(os.path.join(data_path, "train_val.txt")) as f:
+                    self.data_list = f.readlines()
             if sanity:
                 self.transforms = A.Compose(
                     [A.LongestMaxSize(max_size=img_size),
@@ -100,7 +104,7 @@ class LicensePlateDataset(Dataset):
                 y_center = (ymax + ymin) / 2
                 width = xmax - xmin
                 height = ymax - ymin
-                bbox = np.array(([x_center / img_w, y_center / img_h, width / img_w, height / img_h, 1.0]))
+                bbox = np.array(([x_center / img_w, y_center / img_h, width / img_w, height / img_h]))
                 bboxes.append(bbox)
 
         if len(bboxes) == 0:
@@ -113,11 +117,11 @@ class LicensePlateDataset(Dataset):
 
         # Below assumes 3 scale predictions (as paper) and same num of anchors per scale
         # targets store the bounding box information at different scale with respect to different anchor boxes
-        targets = [torch.zeros((self.num_anchors // 3, sz, sz, 6)) for sz in self.feat_sz]
+        targets = [torch.zeros((self.num_anchors // 3, sz, sz, 5)) for sz in self.feat_sz]
         for box in bboxes:
             iou_anchors = iou(torch.tensor(box[2:4]), self.norm_anchors)
             anchor_indices = iou_anchors.argsort(descending=True, dim=0)
-            x, y, width, height, class_label = box
+            x, y, width, height = box
             has_anchor = [False] * 3  # each scale should have one anchor
             for anchor_idx in anchor_indices:
                 scale_idx = torch.div(anchor_idx, self.num_anchors_per_scale, rounding_mode="floor")
@@ -134,7 +138,6 @@ class LicensePlateDataset(Dataset):
                         [x_cell, y_cell, width_cell, height_cell]
                     )
                     targets[scale_idx][anchor_on_scale, i, j, 1:5] = box_coordinates
-                    targets[scale_idx][anchor_on_scale, i, j, 5] = int(class_label)
                     has_anchor[scale_idx] = True
                 elif not anchor_taken and iou_anchors[anchor_idx] > self.ignore_iou_thres:
                     targets[scale_idx][anchor_on_scale, i, j, 0] = -1  # ignore prediction

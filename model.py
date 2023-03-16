@@ -82,28 +82,26 @@ class ResidualBlock(nn.Module):
 
 
 class ScalePrediction(nn.Module):
-    def __init__(self, in_channels, num_classes):
+    def __init__(self, in_channels):
         super().__init__()
         self.pred = nn.Sequential(
             CNNBlock(in_channels, 2 * in_channels, kernel_size=3, padding=1),
             CNNBlock(
-                2 * in_channels, (num_classes + 5) * 3, bn_act=False, kernel_size=1
+                2 * in_channels, 5 * 3, bn_act=False, kernel_size=1
             ),
         )
-        self.num_classes = num_classes
 
     def forward(self, x):
         return (
             self.pred(x)
-                .reshape(x.shape[0], 3, self.num_classes + 5, x.shape[2], x.shape[3])
+                .reshape(x.shape[0], 3, 5, x.shape[2], x.shape[3])
                 .permute(0, 1, 3, 4, 2)
         )
 
 
 class YOLOv3(nn.Module):
-    def __init__(self, in_channels=3, num_classes=80):
+    def __init__(self, in_channels=3):
         super().__init__()
-        self.num_classes = num_classes
         self.in_channels = in_channels
         self.layers = self._create_conv_layers()
 
@@ -153,7 +151,7 @@ class YOLOv3(nn.Module):
                     layers += [
                         ResidualBlock(in_channels, use_residual=False, num_repeats=1),
                         CNNBlock(in_channels, in_channels // 2, kernel_size=1),
-                        ScalePrediction(in_channels // 2, num_classes=self.num_classes),
+                        ScalePrediction(in_channels // 2),
                     ]
                     in_channels = in_channels // 2
 

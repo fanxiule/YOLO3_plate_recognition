@@ -12,7 +12,7 @@ from tensorboardX import SummaryWriter
 from plate_dataset import LicensePlateDataset
 from model import YOLOv3
 from loss import YoloLoss
-from utils import get_eval_pred, mean_average_precision, non_max_suppression, cells_to_bboxes
+from utils import get_eval_pred, average_precision, non_max_suppression, cells_to_bboxes
 
 
 def arg_parse():
@@ -20,16 +20,17 @@ def arg_parse():
     parser = argparse.ArgumentParser(description="train YOLOv3")
     parser.add_argument("--data_path", type=str, default="./dataset")
     parser.add_argument("--log_path", type=str, default="log")
-    parser.add_argument("--model_name", type=str, default="yolov3")
+    parser.add_argument("--model_name", type=str, default="yolov3_sanity")
     parser.add_argument("--pretrained_model", type=str, default=None)
     # model settings
     parser.add_argument("--img_sz", type=int, default=416)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--conf_thres", type=float, default=0.4)
-    parser.add_argument("--mAP_iou_thres", type=float, default=0.5)
+    parser.add_argument("--AP_iou_thres", type=float, default=0.5)
     parser.add_argument("--nms_iou_thres", type=float, default=0.4)
     parser.add_argument("--label_iou_thres", type=float, default=0.5)
     # optimization settings
+    parser.add_argument("--train_split", type=int, choices=[0, 3], default=0)
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--batch_sz", type=int, default=1)
@@ -42,7 +43,6 @@ def arg_parse():
     parser.add_argument("--lambda_box", type=int, default=10)
     parser.add_argument("--lambda_obj", type=float, default=1)
     parser.add_argument("--lambda_noobj", type=float, default=10)
-    parser.add_argument("--lambda_cls", type=int, default=1)
     # logging settings
     parser.add_argument("--log_freq", type=int, default=100)
     parser.add_argument("--save_freq", type=int, default=200)
@@ -71,12 +71,12 @@ class YOLOv3Trainer:
             [self.args.img_sz // self.scales[0], self.args.img_sz // self.scales[1],
              self.args.img_sz // self.scales[2]]).unsqueeze(1).unsqueeze(1).repeat(1, 3, 2)).to(self.args.device)
 
-        self.model = YOLOv3(num_classes=1)
+        self.model = YOLOv3()
         self.model = self.model.to(self.args.device)
         self.model.init_model()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, self.args.scheduler_step, self.args.scheduler_rate)
-        self.loss = YoloLoss(self.args.lambda_box, self.args.lambda_obj, self.args.lambda_noobj, self.args.lambda_cls)
+        self.loss = YoloLoss(self.args.lambda_box, self.args.lambda_obj, self.args.lambda_noobj)
 
         if self.args.pretrained_model is not None:
             print("Loading pretrained weights from %s" % self.args.pretrained_model)
@@ -99,8 +99,9 @@ class YOLOv3Trainer:
             print("Use random model and optimizer weights")
 
         sanity = False  # TODO
-        self.train_dataset = LicensePlateDataset(self.args.data_path, 0, self.norm_anchors, self.args.img_sz,
-                                                 self.scales, self.args.label_iou_thres, sanity=sanity)
+        self.train_dataset = LicensePlateDataset(self.args.data_path, self.args.train_split, self.norm_anchors,
+                                                 self.args.img_sz, self.scales, self.args.label_iou_thres,
+                                                 sanity=sanity)
         # TODO
         self.val_dataset = LicensePlateDataset(self.args.data_path, 1, self.norm_anchors, self.args.img_sz,
                                                self.scales, self.args.label_iou_thres, sanity=sanity)
@@ -116,8 +117,8 @@ class YOLOv3Trainer:
         self.val_writer = SummaryWriter(os.path.join(self.log_path, "val"))
 
         self.inv_normalize = transforms.Normalize(
-               mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
-               std=[1/0.229, 1/0.224, 1/0.225])
+            mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+            std=[1 / 0.229, 1 / 0.224, 1 / 0.225])
         self.current_epoch = 0
         self.current_step = 0
 
@@ -131,8 +132,9 @@ class YOLOv3Trainer:
         print("Confidence threshold: %.2f" % self.args.conf_thres)
         print("IOU threshold for generating labels: %.2f" % self.args.label_iou_thres)
         print("IOU threshold for NMS: %.2f" % self.args.nms_iou_thres)
-        print("IOU threshold for mAP: %.2f" % self.args.mAP_iou_thres)
+        print("IOU threshold for AP: %.2f" % self.args.AP_iou_thres)
         print("-------------Optimization Info-------------")
+        print("Training set identification: %d" % self.args.train_split)
         print("Number of training images: %d" % len(self.train_dataset))
         print("Number of validation images: %d" % len(self.val_dataset))
         print("Batch size: %d" % self.args.batch_sz)
@@ -144,7 +146,6 @@ class YOLOv3Trainer:
         print("Lambda box: %.2f" % self.args.lambda_box)
         print("Lambda obj: %.2f" % self.args.lambda_obj)
         print("Lambda noobj: %.2f" % self.args.lambda_noobj)
-        print("Lambda cls: %.2f" % self.args.lambda_cls)
 
     def train(self):
         print("---------------Start training---------------")
@@ -195,23 +196,20 @@ class YOLOv3Trainer:
                 self.val_mini_batch()
 
     def val(self):
-        all_pred_boxes, all_true_boxes, tot_class_preds, correct_class, tot_noobj, correct_noobj, tot_obj, correct_obj, _ = get_eval_pred(
+        all_pred_boxes, all_true_boxes, tot_noobj, correct_noobj, tot_obj, correct_obj, _ = get_eval_pred(
             self.val_loader, self.model, self.args.conf_thres, self.args.nms_iou_thres, self.norm_anchors, "midpoint",
             self.args.device)
-        self._cal_cls_obj_acc(tot_class_preds, correct_class, tot_noobj, correct_noobj, tot_obj, correct_obj)
-        mean_ap, _, _, _ = mean_average_precision(all_pred_boxes, all_true_boxes, self.args.mAP_iou_thres, "midpoint", 1)
-        print("mAP: %.2f" % mean_ap)
-        self.val_writer.add_scalar("mAP", mean_ap, self.current_step)
+        self._cal_cls_obj_acc(tot_noobj, correct_noobj, tot_obj, correct_obj)
+        ap, _, _, _ = average_precision(all_pred_boxes, all_true_boxes, self.args.AP_iou_thres, "midpoint")
+        print("AP: %.2f" % ap)
+        self.val_writer.add_scalar("AP", ap, self.current_step)
 
-    def _cal_cls_obj_acc(self, tot_class_preds, correct_class, tot_noobj, correct_noobj, tot_obj, correct_obj):
+    def _cal_cls_obj_acc(self, tot_noobj, correct_noobj, tot_obj, correct_obj):
         eps = 1e-16
-        cls_acc = (correct_class / (tot_class_preds + eps)) * 100
         noobj_acc = (correct_noobj / (tot_noobj + eps)) * 100
         obj_acc = (correct_obj / (tot_obj + eps)) * 100
-        print("Class accuracy: %.2f" % cls_acc)
         print("No obj accuracy: %.2f" % noobj_acc)
         print("Obj accuracy: %.2f" % obj_acc)
-        self.val_writer.add_scalar("Class_Accuracy", cls_acc, self.current_step)
         self.val_writer.add_scalar("No_Obj_Accuracy", noobj_acc, self.current_step)
         self.val_writer.add_scalar("Obj_Accuracy", obj_acc, self.current_step)
 
@@ -251,23 +249,21 @@ class YOLOv3Trainer:
         img_bbox = (img_bbox.astype(np.uint8)).copy()
 
         for i in range(len(gt_bbox)):
-            if gt_bbox[i][1] == 1:
-                x1 = (gt_bbox[i][2] - gt_bbox[i][4] / 2) * self.args.img_sz
-                y1 = (gt_bbox[i][3] - gt_bbox[i][5] / 2) * self.args.img_sz
-                x2 = (gt_bbox[i][2] + gt_bbox[i][4] / 2) * self.args.img_sz
-                y2 = (gt_bbox[i][3] + gt_bbox[i][5] / 2) * self.args.img_sz
+            if gt_bbox[i][0] == 1:
+                x1 = (gt_bbox[i][1] - gt_bbox[i][3] / 2) * self.args.img_sz
+                y1 = (gt_bbox[i][2] - gt_bbox[i][4] / 2) * self.args.img_sz
+                x2 = (gt_bbox[i][1] + gt_bbox[i][3] / 2) * self.args.img_sz
+                y2 = (gt_bbox[i][2] + gt_bbox[i][4] / 2) * self.args.img_sz
                 cv2.rectangle(img_bbox, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-                cv2.putText(img_bbox, "GT", (int(x1), int(y1) - 5),
-                            cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+                cv2.putText(img_bbox, "GT", (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
 
         for i in range(len(pred_bbox)):
-            x1 = (pred_bbox[i][2] - pred_bbox[i][4] / 2) * self.args.img_sz
-            y1 = (pred_bbox[i][3] - pred_bbox[i][5] / 2) * self.args.img_sz
-            x2 = (pred_bbox[i][2] + pred_bbox[i][4] / 2) * self.args.img_sz
-            y2 = (pred_bbox[i][3] + pred_bbox[i][5] / 2) * self.args.img_sz
+            x1 = (pred_bbox[i][1] - pred_bbox[i][3] / 2) * self.args.img_sz
+            y1 = (pred_bbox[i][2] - pred_bbox[i][4] / 2) * self.args.img_sz
+            x2 = (pred_bbox[i][1] + pred_bbox[i][3] / 2) * self.args.img_sz
+            y2 = (pred_bbox[i][2] + pred_bbox[i][4] / 2) * self.args.img_sz
             cv2.rectangle(img_bbox, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-            cv2.putText(img_bbox, "Pred", (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_COMPLEX,
-                        0.5, (255, 0, 0), 1)
+            cv2.putText(img_bbox, "Pred", (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_COMPLEX, 0.5, (255, 0, 0), 1)
 
         img_bbox = img_bbox / 255.0
         img_bbox = np.transpose(img_bbox, (2, 0, 1))

@@ -13,7 +13,7 @@ parser.add_argument("--dataset_path", type=str, default="./dataset")
 args = parser.parse_args()
 
 
-def process_kaggle_plate_dataset(dataset_path, folder_name, train_list):
+def process_kaggle_plate_dataset(dataset_path, folder_name, train_list, train_val_list):
     # process the dataset downloaded from https://www.kaggle.com/datasets/andrewmvd/car-plate-detection?resource=download
     data_path = os.path.join(dataset_path, folder_name)
     img_list = os.listdir(os.path.join(data_path, "images"))
@@ -22,10 +22,11 @@ def process_kaggle_plate_dataset(dataset_path, folder_name, train_list):
         annotation_path = os.path.join(data_path, "annotations", img_name.replace(".png", ".xml"))
         file_info = img_path + ", " + annotation_path + "\n"
         train_list.append(file_info)
+        train_val_list.append(file_info)
     return train_list
 
 
-def process_split_roboflow_plate_dataset(data_path, file_list):
+def process_split_roboflow_plate_dataset(data_path, file_list, second_list=None):
     data_list = os.listdir(data_path)
     img_list = [filename for filename in data_list if ".jpg" in filename]
     for img_name in img_list:
@@ -33,17 +34,21 @@ def process_split_roboflow_plate_dataset(data_path, file_list):
         annotation_path = os.path.join(data_path, img_name.replace(".jpg", ".xml"))
         file_info = img_path + ", " + annotation_path + "\n"
         file_list.append(file_info)
-    return file_list
+        if second_list is not None:
+            second_list.append(file_info)
+    return file_list, second_list
 
 
-def process_roboflow_plate_dataset(dataset_path, folder_name, train_list, val_list, test_list):
+def process_roboflow_plate_dataset(dataset_path, folder_name, train_list, val_list, test_list, train_val_list):
     # process the dataset downloaded from https://public.roboflow.com/object-detection/license-plates-us-eu/3
     # data should be in the PASCAL VOC format
     data_path = os.path.join(dataset_path, folder_name)
-    train_list = process_split_roboflow_plate_dataset(os.path.join(data_path, "train"), train_list)
-    val_list = process_split_roboflow_plate_dataset(os.path.join(data_path, "valid"), val_list)
-    test_list = process_split_roboflow_plate_dataset(os.path.join(data_path, "test"), test_list)
-    return train_list, val_list, test_list
+    train_list, train_val_list = process_split_roboflow_plate_dataset(os.path.join(data_path, "train"), train_list,
+                                                                      train_val_list)
+    val_list, train_val_list = process_split_roboflow_plate_dataset(os.path.join(data_path, "valid"), val_list,
+                                                                    train_val_list)
+    test_list, _ = process_split_roboflow_plate_dataset(os.path.join(data_path, "test"), test_list)
+    return train_list, val_list, test_list, train_val_list
 
 
 if __name__ == "__main__":
@@ -51,17 +56,20 @@ if __name__ == "__main__":
     train_list = []
     val_list = []
     test_list = []
+    train_val_list = []
 
     for subset in subsets:
         if subset == "archive":
-            train_list = process_kaggle_plate_dataset(args.dataset_path, subset, train_list)
+            train_list = process_kaggle_plate_dataset(args.dataset_path, subset, train_list, train_val_list)
         elif subset == "License Plates.v3-original-license-plates.voc":
-            train_list, val_list, test_list = process_roboflow_plate_dataset(args.dataset_path, subset, train_list,
-                                                                             val_list, test_list)
+            train_list, val_list, test_list, train_val_list = process_roboflow_plate_dataset(args.dataset_path, subset,
+                                                                                             train_list, val_list,
+                                                                                             test_list, train_val_list)
 
     train_file = os.path.join(args.dataset_path, "train.txt")
     val_file = os.path.join(args.dataset_path, "val.txt")
     test_file = os.path.join(args.dataset_path, "test.txt")
+    train_val_file = os.path.join(args.dataset_path, "train_val.txt")
 
     for entry in train_list:
         with open(train_file, 'a') as f:
@@ -73,5 +81,9 @@ if __name__ == "__main__":
             f.close()
     for entry in test_list:
         with open(test_file, 'a') as f:
+            f.write(entry)
+            f.close()
+    for entry in train_val_list:
+        with open(train_val_file, 'a') as f:
             f.write(entry)
             f.close()
