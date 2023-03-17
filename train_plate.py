@@ -134,6 +134,7 @@ class YOLOv3Trainer:
         print("IOU threshold for NMS: %.2f" % self.args.nms_iou_thres)
         print("IOU threshold for AP: %.2f" % self.args.AP_iou_thres)
         print("-------------Optimization Info-------------")
+        print("Training device: %s" % self.args.device)
         print("Training set identification: %d" % self.args.train_split)
         print("Number of training images: %d" % len(self.train_dataset))
         print("Number of validation images: %d" % len(self.val_dataset))

@@ -77,7 +77,7 @@ class YOLOv3Evaluator:
                                  drop_last=False)
 
         self.log_path = os.path.join(self.args.log_path, self.args.model_name)
-        self.writer = SummaryWriter(os.path.join(self.log_path, "eval"))
+        self.writer = SummaryWriter(self.log_path, "eval")
 
         self.inv_normalize = transforms.Normalize(
             mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
@@ -93,6 +93,7 @@ class YOLOv3Evaluator:
         print("Evaluation split id: %r" % self.args.split)
         print("Number of evaluation images: %d" % len(self.dataset))
         print("-------------Model Info-------------")
+        print("Evaluation device: %s" % self.args.device)
         print("Confidence threshold: %.2f" % self.args.conf_thres)
         print("IOU threshold for generating labels: %.2f" % self.args.label_iou_thres)
         print("IOU threshold for NMS: %.2f" % self.args.nms_iou_thres)
