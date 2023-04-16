@@ -142,6 +142,38 @@ def non_max_suppression(bboxes, iou_threshold, threshold, box_format="corners"):
     return bboxes_after_nms
 
 
+def non_max_suppression_for_seq(bboxes, iou_threshold, threshold, box_format="corners"):
+    """
+    NMS for bboxes with sequence information (used in Seq-NMS)
+
+    Parameters:
+        bboxes (list): list of lists containing all bboxes with each bboxes
+        specified as [prob_score, x1, y1, x2, y2, seq_length, seq_score]
+        iou_threshold (float): threshold where predicted bboxes is correct
+        threshold (float): threshold to remove predicted bboxes (independent of IoU)
+        box_format (str): "midpoint" or "corners" used to specify bboxes
+
+    Returns:
+        list: bboxes after performing NMS given a specific IoU threshold
+    """
+
+    assert type(bboxes) == list
+
+    bboxes = [box for box in bboxes if box[0] > threshold]
+    bboxes = sorted(bboxes, key=lambda x: x[0], reverse=True)
+    bboxes_after_nms = []
+
+    while bboxes:
+        chosen_box = bboxes.pop(0)
+
+        bboxes = [box for box in bboxes if intersection_over_union(torch.tensor(chosen_box[1:5]), torch.tensor(box[1:5]),
+                                                                   box_format=box_format) < iou_threshold]
+
+        bboxes_after_nms.append(chosen_box)
+
+    return bboxes_after_nms
+
+
 def get_eval_pred(loader, model, conf_thres, nms_iou_thres, norm_anchors, box_format="midpoint", device="cuda"):
     model.eval()
     total_time = 0
@@ -204,7 +236,7 @@ def average_precision(pred_boxes, true_boxes, iou_threshold=0.5, box_format="mid
     Video explanation of this function:
     https://youtu.be/FppOzcDvaDI
 
-    This function calculates mean average precision (mAP)
+    This function calculates average precision (AP)
 
     Parameters:
         pred_boxes (list): list of lists containing all bboxes with each bboxes

@@ -4,3 +4,5 @@ dataset/
 __pycache__/
 make_video.py
 test_on_video.py
+*.ipynb
+*.html

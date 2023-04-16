@@ -98,11 +98,10 @@ class YOLOv3Trainer:
         else:
             print("Use random model and optimizer weights")
 
-        sanity = False  # TODO
+        sanity = False
         self.train_dataset = LicensePlateDataset(self.args.data_path, self.args.train_split, self.norm_anchors,
                                                  self.args.img_sz, self.scales, self.args.label_iou_thres,
                                                  sanity=sanity)
-        # TODO
         self.val_dataset = LicensePlateDataset(self.args.data_path, 1, self.norm_anchors, self.args.img_sz,
                                                self.scales, self.args.label_iou_thres, sanity=sanity)
         self.train_loader = DataLoader(self.train_dataset, batch_size=self.args.batch_sz,

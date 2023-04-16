@@ -19,12 +19,12 @@ def arg_parse():
     parser.add_argument("--data_path", type=str, default="./dataset")
     parser.add_argument("--log_path", type=str, default="log")
     parser.add_argument("--model_name", type=str, default="eval_yolov3_test")
-    parser.add_argument("--pretrained_model", type=str, default="log/yolov3_plate/400")
+    parser.add_argument("--pretrained_model", type=str, default="log/yolov3_plate_10_6_10/400")
     # model settings
     parser.add_argument("--img_sz", type=int, default=416)
-    parser.add_argument("--conf_thres", type=float, default=0.4)
+    parser.add_argument("--conf_thres", type=float, default=0.7)
     parser.add_argument("--AP_iou_thres", type=float, default=0.5)
-    parser.add_argument("--nms_iou_thres", type=float, default=0.4)
+    parser.add_argument("--nms_iou_thres", type=float, default=0.05)
     parser.add_argument("--label_iou_thres", type=float, default=0.5)
     # evaluation settings
     parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default="cuda")
@@ -70,7 +70,7 @@ class YOLOv3Evaluator:
             raise FileNotFoundError
 
         # setting up dataset
-        sanity = False  # TODO
+        sanity = False
         self.dataset = LicensePlateDataset(self.args.data_path, self.args.split, self.norm_anchors, self.args.img_sz,
                                            self.scales, self.args.label_iou_thres, sanity=sanity)
         self.loader = DataLoader(self.dataset, batch_size=1, num_workers=0, pin_memory=True, shuffle=False,
